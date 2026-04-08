@@ -1,0 +1,29 @@
+# --- Bastion Protocol Exclusions ---
+
+# 1. Identity & Secrets
+# Prevents leaking your Discord Webhook and Golden CID 
+.env
+
+# 2. Virtual Environments
+# Prevents uploading bulky Python libraries (users should install their own) 
+venv/
+env/
+
+# 3. IPFS Infrastructure
+# Prevents uploading your local node's data and large kubo binaries 
+kubo/
+kubo_v0.33.0_linux-amd64.tar.gz
+
+# 4. Temporary Recovery Data
+# Prevents uploading files during the "Healing" process 
+.recovery_zone/
+
+# 5. Python System Files
+# Prevents compiled bytecode from cluttering the repo
+__pycache__/
+*.py[cod]
+*$py.class
+
+# 6. Logs & Analysis
+# Prevents uploading large history files that could crash the server
+*.log
