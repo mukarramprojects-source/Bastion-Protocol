@@ -2,10 +2,15 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers.polling import PollingObserver as Observer
 
+
 class BastionHandler(FileSystemEventHandler):
     def __init__(self, callback):
         self.callback = callback
         self.is_healing = False
+        
+    def on_attribute_modified(self, event):
+        if not event.is_directory and not self.is_healing:
+            self.callback("Permission/Attribute Change", event.src_path)
 
     def on_modified(self, event):
         if not event.is_directory and not self.is_healing:

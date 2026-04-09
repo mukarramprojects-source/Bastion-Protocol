@@ -13,67 +13,74 @@ class PhoenixHealer:
         self.webhook_url = os.getenv("DISCORD_WEBHOOK")
 
     def enforce_state(self, target_dir):
+        """
+        Wipes the compromised directory and restores the 'Golden State' from IPFS.
+        """
+        temp_path = "/tmp/bastion_recovery"
+        
         try:
             print(f"[*] Enforcing Absolute Integrity for {target_dir}...")
-            
-            temp_path = "./.recovery_zone"
+            target_path = os.path.abspath(target_dir)
+
+            # 1. CLEAN START: Remove any stale recovery data
             if os.path.exists(temp_path):
-                if os.path.isdir(temp_path):
-                    shutil.rmtree(temp_path)
-                else:
-                    os.remove(temp_path)
+                subprocess.run(["sudo", "rm", "-rf", temp_path])
 
-            # 1. Fetch from IPFS
-            # We don't use -o here to let IPFS manage the naming, 
-            # or we handle the result specifically.
-            subprocess.run(["ipfs", "get", self.cid, "-o", temp_path], check=True, capture_output=True)
+            # 2. PREPARE ENVIRONMENT: Create temp folder and grant 'kali' ownership
+            os.makedirs(temp_path, exist_ok=True)
+            subprocess.run(["sudo", "chown", "kali:kali", temp_path])
+            subprocess.run(["sudo", "chmod", "777", temp_path])
+
+            # 3. FETCH FROM DECENTRALIZED STORAGE: Pull Golden State from IPFS
+            subprocess.run([
+                "sudo", "-u", "kali", "env", "IPFS_PATH=/home/kali/.ipfs", 
+                "ipfs", "get", self.cid, "-o", temp_path
+            ], check=True)
+
+            # 4. PURGE COMPROMISED FILES: Wipe the target directory
+            subprocess.run(f"sudo rm -rf {target_path}/*", shell=True)
+
+            # 5. RESTORE INTEGRITY: Move files from temp to target and fix permissions
+            items = os.listdir(temp_path)
+            content_source = temp_path
             
-            # 2. PURGE: Wipe the monitored directory
-            for item in os.listdir(target_dir):
-                item_path = os.path.join(target_dir, item)
-                os.chmod(item_path, 0o777) if os.path.exists(item_path) else None
-                if os.path.isdir(item_path):
-                    shutil.rmtree(item_path)
-                else:
-                    os.remove(item_path)
+            # Handle IPFS subfolder naming if necessary
+            if len(items) == 1 and os.path.isdir(os.path.join(temp_path, items[0])):
+                content_source = os.path.join(temp_path, items[0])
 
-            # 3. RESTORE: Logic based on whether CID was a file or folder
-            if os.path.isdir(temp_path):
-                # If it's a folder, copy its contents
-                pulled_items = os.listdir(temp_path)
-                if pulled_items:
-                    source_content = os.path.join(temp_path, pulled_items[0])
-                    if os.path.isdir(source_content):
-                        for item in os.listdir(source_content):
-                            shutil.move(os.path.join(source_content, item), os.path.join(target_dir, item))
-                    else:
-                        # It's just the file sitting in the temp dir
-                        shutil.move(source_content, os.path.join(target_dir, pulled_items[0]))
-            else:
-                # If temp_path IS the file (CID was a single file)
-                # We rename/move it to its original name. 
-                # NOTE: You'll need the original filename. 
-                # For now, let's assume 'important_file.py' or detect from CID metadata
-                shutil.move(temp_path, os.path.join(target_dir, "important_file.py"))
+            subprocess.run(f"sudo cp -r {content_source}/. {target_path}", shell=True)
+            subprocess.run(["sudo", "chown", "-R", "kali:kali", target_path])
 
             print("[+] System State Re-Synchronized.")
-            
+            self.send_alert(target_dir, status="State Restored")
+
         except Exception as e:
             print(f"[CRITICAL] State Enforcement Failed: {e}")
+            self.send_alert(target_dir, status="Heal Failed")
+            
+        finally:
+            # Always clean up sensitive recovery data
+            if os.path.exists(temp_path):
+                shutil.rmtree(temp_path)
 
     def send_alert(self, file_path, status="Neutralized"):
+        """
+        Sends a notification to the Discord Webhook about the breach and remediation.
+        """
         if not self.webhook_url or "YOUR_DISCORD" in self.webhook_url:
             return
-        
+
         data = {
             "embeds": [{
                 "title": f"🛡️ Bastion-Protocol: {status}",
                 "description": f"Integrity breach addressed at `{file_path}`.",
                 "color": 15158332,
-                "footer": {"text": "Bastion-Protocol v1 | Decentralized FIM"}
+                "footer": {"text": "Aegis-Ghost v1 | Decentralized Self-Healing FIM"}
             }]
         }
+        
         try:
             requests.post(self.webhook_url, json=data, timeout=5)
-        except:
+        except Exception:
+            # Silently fail if Discord is unreachable to prevent script hanging
             pass

@@ -2,29 +2,38 @@
 import time
 import subprocess
 import os
+from pathlib import Path # More reliable for absolute paths
 from dotenv import load_dotenv
 from core.healer import PhoenixHealer
 from core.monitor import BastionWatcher
 
+# 1. SETUP ABSOLUTE PATHS
+# This finds exactly where bastion.py is located
+BASE_DIR = Path(__file__).resolve().parent
+ENV_PATH = BASE_DIR / ".env"
+MONITORED_PATH = BASE_DIR / "monitored_dir"
 
-# Get the absolute path of the directory where bastion.py sits
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-load_dotenv(os.path.join(BASE_DIR, ".env"))
+# 2. LOAD ENV PROPERLY
+if ENV_PATH.exists():
+    load_dotenv(dotenv_path=ENV_PATH)
+else:
+    print(f"[CRITICAL] .env file not found at {ENV_PATH}")
+    exit(1)
 
-GOLDEN_CID = os.getenv("GOLDEN_CID")
-# Verify it loaded
+# Ensure the CID is clean (no quotes or spaces)
+GOLDEN_CID = os.getenv("GOLDEN_CID", "").strip().strip("'").strip('"')
+
 if not GOLDEN_CID:
-    print("[CRITICAL] Could not find GOLDEN_CID in .env!")
+    print("[CRITICAL] GOLDEN_CID is empty in .env!")
     exit(1)
 
 watcher = None
 
 def get_current_cid():
     try:
-        # Use the --offline flag so it doesn't try to talk to the repo if it's locked
-        # Or use the local API if the daemon is running
+        # Use the absolute path discovered at startup
         result = subprocess.run(
-            ["ipfs", "add", "-n", "-r", "-Q", "./monitored_dir"],
+            ["ipfs", "add", "-n", "-r", "-Q", str(MONITORED_PATH)],
             capture_output=True,
             text=True
         )
@@ -40,11 +49,11 @@ def handle_incident(event_type, file_path):
     if watcher.is_healing:
         return
 
-    # Small delay to let the OS finish the 'mv' or 'rm' operation
-    time.sleep(0.1) 
+    time.sleep(0.3) 
 
     current_hash = get_current_cid()
-    print(f"DEBUG: Current CID: {current_hash}")
+    # Log comparison for your report evidence
+    print(f"DEBUG: Comparing Current({current_hash}) with Golden({GOLDEN_CID})")
     
     if current_hash == GOLDEN_CID:
         return 
@@ -52,10 +61,11 @@ def handle_incident(event_type, file_path):
     print(f"[!] {event_type} detected: {file_path}")
     
     watcher.is_healing = True 
+    # Pass the verified GOLDEN_CID to the healer
     healer = PhoenixHealer(GOLDEN_CID)
     
-    # Force the entire folder to match the baseline
-    healer.enforce_state("./monitored_dir")
+    # Use the absolute path for enforcement
+    healer.enforce_state(str(MONITORED_PATH))
     
     time.sleep(1)
     watcher.is_healing = False
@@ -64,8 +74,9 @@ def handle_incident(event_type, file_path):
 def start_bastion():
     global watcher
     print("[-] Initializing Bastion Protocol...")
+    print(f"[-] Monitoring Path: {MONITORED_PATH}")
     
-    watcher = BastionWatcher(path="./monitored_dir", callback=handle_incident)
+    watcher = BastionWatcher(path=str(MONITORED_PATH), callback=handle_incident)
     watcher.start()
 
     try:
